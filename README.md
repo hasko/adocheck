@@ -85,6 +85,19 @@ relations = api.get_relationships(entity_id)
 print(f"Found {len(relations)} relationships")
 ```
 
+### Advanced Filtering
+
+```python
+# Search for entities with multiple attribute filters
+filters = [
+    {"className": ["C_APPLICATION"]},
+    {"attrName": "A_CUST_SPECIALISATION", "value": "Bus. App.", "op": "OP_EQ"},
+    {"attrName": "A_LIFECYCLE_STATE", "value": "In production", "op": "OP_EQ"}
+]
+entities = api.get_entities_by_filters(filters)
+print(f"Found {len(entities)} matching entities")
+```
+
 ### Cache Management
 
 ```python
@@ -95,6 +108,102 @@ api.invalidate_cache()
 
 # Invalidate cache older than 7 days
 api.invalidate_cache(older_than=datetime.datetime.now() - datetime.timedelta(days=7))
+```
+
+## Report Generator
+
+The report generator module (`report_generator.py`) provides functionality to generate filtered reports of ADOit entities with automatic attribute name discovery.
+
+### Basic Usage
+
+Generate a report of application components with specific attribute filters:
+
+```bash
+# Generate report with default filters (Specialisation: "Bus. App.", Lifecycle State: "In production")
+uv run report_generator.py
+
+# Specify custom filters
+uv run report_generator.py --specialisation "Bus. App." --lifecycle "In production"
+
+# Specify output path
+uv run report_generator.py --output data/my_report.json
+
+# Use a different class
+uv run report_generator.py --class-name C_CUST_IT_DOMAIN
+```
+
+### List Available Attributes
+
+Before generating a report, you can list all available attributes for a class:
+
+```bash
+# List all attributes for the default class (C_APPLICATION)
+uv run report_generator.py --list-attributes
+
+# List attributes for a specific class
+uv run report_generator.py --class-name C_CUST_IT_DOMAIN --list-attributes
+```
+
+### Manual Attribute Mapping
+
+If attribute discovery fails or you want to specify exact attribute names:
+
+```bash
+uv run report_generator.py \
+  --manual-mapping "Specialisation" "RC_SPECIALIZATION" \
+  --manual-mapping "Lifecycle State" "A_LIFECYCLE_STATE"
+```
+
+### Using as a Library
+
+```python
+from report_generator import ReportGenerator
+from adoit_api import AdoitApi
+
+# Initialize
+api = AdoitApi()
+generator = ReportGenerator(api)
+
+# Generate a report
+report_path = generator.run_report(
+    class_name="C_APPLICATION",
+    target_attributes={
+        "Specialisation": "Bus. App.",
+        "Lifecycle State": "In production"
+    },
+    output_path="data/application_report.json"
+)
+
+# List all available attributes
+attributes = generator.list_all_attributes("C_APPLICATION")
+for attr in attributes:
+    print(f"{attr['displayName']} -> {attr['metaName']}")
+```
+
+### Report Output Format
+
+The generated JSON report includes metadata and entity data:
+
+```json
+{
+  "report_metadata": {
+    "generated_at": "2025-11-26T17:30:00.123456",
+    "filters_applied": {
+      "class": "C_APPLICATION",
+      "Specialisation": "Bus. App.",
+      "Lifecycle State": "In production"
+    },
+    "total_count": 42
+  },
+  "applications": [
+    {
+      "id": "{entity-uuid}",
+      "name": "Customer Portal",
+      "specialisation": "Bus. App.",
+      "lifecycle_state": "In production"
+    }
+  ]
+}
 ```
 
 ## ADOit API Endpoints Used

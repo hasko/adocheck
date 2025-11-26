@@ -484,7 +484,64 @@ class AdoitApi:
             conn.commit()
         
         return relations
-    
+
+    def get_entities_by_filters(self, filters: List[Dict[str, Any]], repo_id: str = None, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get entities matching complex filter criteria from cache or fetch from ADOit API.
+
+        Args:
+            filters: List of filter dictionaries. Each filter can contain:
+                     - className: List of class names to filter by
+                     - attrName: Attribute name to filter by
+                     - value: Value to match against
+                     - op: Operator (OP_EQ, OP_LIKE, OP_NEMPTY, etc.)
+            repo_id: The repository ID to search in (defaults to ADOIT_REPO_ID)
+            force_refresh: Force refresh from API regardless of cache
+
+        Returns:
+            List of entity data dictionaries matching the filters
+
+        Example:
+            filters = [
+                {"className": ["C_APPLICATION"]},
+                {"attrName": "A_SPECIALISATION", "value": "Bus. App.", "op": "OP_EQ"}
+            ]
+            entities = api.get_entities_by_filters(filters)
+        """
+        if repo_id is None:
+            repo_id = ADOIT_REPO_ID
+
+        # Strip curly braces from repo_id if present
+        repo_id = repo_id.strip('{}') if repo_id else repo_id
+
+        # Create a cache key based on the filters
+        import hashlib
+        filter_key = hashlib.md5(json.dumps(filters, sort_keys=True).encode()).hexdigest()
+
+        if not force_refresh:
+            # Try to get from cache first
+            # Note: For now we skip caching of filtered queries to keep it simple
+            # Could be enhanced later with a dedicated filtered_queries table
+            pass
+
+        # Build query with filters
+        query = json.dumps({"filters": filters})
+        q = {
+            "query": query
+        }
+
+        # Fetch from API with pagination using correct endpoint
+        response = adoit_request_paginated(f"2.0/repos/{repo_id}/search", q=q)
+        response.raise_for_status()
+
+        result_data = response.json()
+        entities = result_data.get("items", [])
+
+        # Note: We don't cache filtered results in the entities table since they may
+        # not represent the full set for a given type. Could add separate caching later.
+
+        return entities
+
     def invalidate_cache(self, older_than: Optional[datetime.datetime] = None):
         """
         Invalidate cache entries.
