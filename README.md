@@ -110,6 +110,86 @@ api.invalidate_cache()
 api.invalidate_cache(older_than=datetime.datetime.now() - datetime.timedelta(days=7))
 ```
 
+## Capability Mapper
+
+The capability mapper module (`capability_mapper.py`) maps business applications to top-level capabilities by traversing relationship chains using BFS graph traversal.
+
+### Basic Usage
+
+Map all business applications (C_APPLICATION_COMPONENT with Specialisation "Bus. App.") to top-level capabilities:
+
+```bash
+# Basic usage with default settings
+uv run python3 capability_mapper.py
+
+# Specify output location
+uv run python3 capability_mapper.py --output data/my_capability_mapping.json
+
+# Use custom application specialisation filter
+uv run python3 capability_mapper.py --app-specialisation "Infrastructure App."
+
+# Manually specify target capability IDs
+uv run python3 capability_mapper.py \
+  --target-capability-ids \
+    "78d13953-a310-46bd-b954-0d7f4da18cd3" \
+    "0148a1c2-9007-40ce-ae23-0bc7809d970e" \
+    "ee9b8536-1930-43d5-858f-e3e136517fe2"
+
+# Dry run (discovery only, no mapping)
+uv run python3 capability_mapper.py --dry-run
+
+# Use cached data for faster execution
+uv run python3 capability_mapper.py --use-cache
+
+# Adjust parallel workers for relationship fetching
+uv run python3 capability_mapper.py --parallel-workers 15
+
+# Debug mode
+uv run python3 capability_mapper.py --log-level DEBUG
+```
+
+### Output Format
+
+The capability mapper generates a JSON report with:
+- Metadata (generation time, filters, statistics)
+- Mappings grouped by capability (with path details)
+- Unmapped applications list
+- Coverage statistics
+
+```json
+{
+  "report_metadata": {
+    "generated_at": "2025-11-26T19:00:00Z",
+    "report_type": "application_capability_mapping",
+    "statistics": {
+      "total_applications": 150,
+      "mapped_applications": 142,
+      "unmapped_applications": 8,
+      "coverage_percentage": 94.67,
+      "average_path_length": 3.2
+    }
+  },
+  "mappings_by_capability": {
+    "Customer Centric Cluster": {
+      "applications": [
+        {
+          "name": "Customer Portal",
+          "path_length": 3,
+          "path_details": [...]
+        }
+      ]
+    }
+  },
+  "unmapped_applications": [...]
+}
+```
+
+### Algorithm
+
+- **Graph Traversal**: BFS (Breadth-First Search) for guaranteed shortest paths
+- **Relationship Types**: Follows ArchiMate structural (composition, aggregation, realization) and dependency (serving, access, influence) relationships
+- **Performance**: Parallel relationship fetching with configurable workers (default: 10)
+
 ## Report Generator
 
 The report generator module (`report_generator.py`) provides functionality to generate filtered reports of ADOit entities with automatic attribute name discovery.

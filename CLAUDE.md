@@ -47,7 +47,43 @@ The codebase is organized around these key components:
      - Orphaned entities (entities with no relationships)
      - (More checks to be implemented)
 
-3. **Database Structure**:
+3. **Report Generator** (`report_generator.py`):
+   - Generates filtered reports of ADOit entities
+   - Automatic metamodel introspection for attribute discovery
+   - Supports complex multi-attribute filtering
+   - JSON output with metadata and statistics
+
+4. **Capability Mapper** (`capability_mapper.py`):
+   - Maps business applications to top-level capabilities through relationship traversal
+   - Uses BFS (Breadth-First Search) for guaranteed shortest paths
+   - Parallel relationship fetching for performance (configurable workers)
+   - Handles large-scale graph analysis (3000+ applications, 5000+ entities)
+   - JSON output with detailed path information and statistics
+
+   **Architecture**:
+   - Graph stored as adjacency list: `{entity_id: [(target_id, rel_type), ...]}`
+   - BFS guarantees shortest path, O(V + E) time complexity
+   - Relationship type filtering based on ArchiMate semantics
+   - In-memory entity cache to minimize API calls
+
+   **Key Features**:
+   - Automatic capability discovery (name-based API filtering)
+   - Manual capability ID specification fallback
+   - Relationship type whitelist (structural: composition, aggregation, realization; dependency: serving, access, influence)
+   - Parallel workers (default: 10) for concurrent relationship fetching
+   - Comprehensive error handling and progress logging
+   - Dry-run mode for discovery without mapping
+
+   **Usage Notes**:
+   - Applications: Use `C_APPLICATION_COMPONENT` entities (not `C_APPLICATION`)
+   - Specialisation attribute: `A_APPLICATION_COMPONENT_SPEC` (values like "App. Comp.")
+   - Top-level capabilities: May be REPOSITORY_OBJECTS accessible via `/repos/{repo_id}/objects/{id}`
+     - These have `metaName: C_CAPABILITY` but may not work with `/entities/{id}` endpoint
+     - Use `--target-capability-ids` to manually specify if auto-discovery fails
+   - Use `--use-cache` for faster repeated runs (but data may be stale)
+   - Adjust `--parallel-workers` based on API rate limits and system resources
+
+5. **Database Structure**:
    - Located in `data/adoit_cache.db` (auto-created)
    - Entities table: `id`, `type`, `name`, `data` (JSON), `retrieved_at`
    - Relationships table: `id`, `source_id`, `target_id`, `type`, `data` (JSON), `retrieved_at`
