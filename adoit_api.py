@@ -282,7 +282,34 @@ class AdoitApi:
             ''')
             
             conn.commit()
-    
+
+        # Run schema migrations
+        self._migrate_cache_schema_v2()
+
+    def _migrate_cache_schema_v2(self):
+        """Add entity_modified_at column for smart caching."""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            # Check if column exists
+            cursor.execute("PRAGMA table_info(entities)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if 'entity_modified_at' not in columns:
+                cursor.execute("ALTER TABLE entities ADD COLUMN entity_modified_at DOUBLE")
+                logger.info("Migrated cache schema to v2 (added entity_modified_at)")
+            conn.commit()
+
+    def _extract_entity_modified_at(self, entity_data: Dict[str, Any]) -> Optional[float]:
+        """
+        Extract DATE_OF_LAST_CHANGE from entity attributes.
+
+        Returns:
+            Modification timestamp (milliseconds) or None if not found
+        """
+        for attr in entity_data.get('attributes', []):
+            if attr.get('metaName') == 'DATE_OF_LAST_CHANGE':
+                return attr.get('value')
+        return None
+
     def get_repos(self) -> List[Dict[str, Any]]:
         """Get list of available repositories from ADOit."""
         response = adoit_request("2.0/repos")
@@ -310,54 +337,119 @@ class AdoitApi:
         response = adoit_request("2.0/metamodel/classes")
         response.raise_for_status()
         return response.json()
-    
-    def get_entity(self, entity_id: str, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
-        """
-        Get entity from cache or fetch from ADOit API if not available or outdated.
-        
-        Args:
-            entity_id: The ID of the entity to retrieve
-            force_refresh: Force refresh from API regardless of cache
-            
-        Returns:
-            Entity data as dictionary or None if not found
-        """
-        if not force_refresh:
-            # Try to get from cache first
-            with sqlite3.connect(DB_PATH) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM entities WHERE id = ?", (entity_id,))
-                row = cursor.fetchone()
-                
-                if row:
-                    # Entity found in cache
-                    return json.loads(row["data"])
-        
-        # Fetch from API
+
+    def _fetch_entity_from_api(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch entity from API without caching."""
         response = adoit_request(f"2.0/entities/{entity_id}")
         if response.status_code == 404:
             return None
-            
         response.raise_for_status()
-        entity_data = response.json()
-        
-        # Store in cache
+        return response.json()
+
+    def _cache_entity(self, entity_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Store entity in cache and return it."""
+        entity_id = entity_data.get('id', '').strip('{}')
+        entity_type = entity_data.get('type', 'unknown')
+        entity_name = entity_data.get('name', '')
+        entity_modified_at = self._extract_entity_modified_at(entity_data)
+
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT OR REPLACE INTO entities (id, type, name, data, retrieved_at) VALUES (?, ?, ?, ?, ?)",
+                """INSERT OR REPLACE INTO entities
+                   (id, type, name, data, retrieved_at, entity_modified_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (
                     entity_id,
-                    entity_data.get("type", "unknown"),
-                    entity_data.get("name", ""),
+                    entity_type,
+                    entity_name,
                     json.dumps(entity_data),
-                    datetime.datetime.now().isoformat()
+                    datetime.datetime.now().isoformat(),
+                    entity_modified_at
                 )
             )
             conn.commit()
-        
+
         return entity_data
+
+    def _fetch_and_cache_entity(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch entity from API and cache it."""
+        entity_data = self._fetch_entity_from_api(entity_id)
+        if entity_data:
+            return self._cache_entity(entity_data)
+        return None
+
+    def get_entity(self, entity_id: str, force_refresh: bool = False, cache_ttl_seconds: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get entity with intelligent caching.
+
+        Args:
+            entity_id: Entity ID to retrieve
+            force_refresh: If True, bypass cache entirely (legacy behavior)
+            cache_ttl_seconds: Time-to-live in seconds. If cache is older than this,
+                              check for modifications. If None, always check modifications.
+                              Default: 172800 (48 hours)
+
+        Returns:
+            Entity data or None if not found
+        """
+        if cache_ttl_seconds is None:
+            cache_ttl_seconds = 172800  # 48 hours default
+
+        # Force refresh bypasses all caching logic
+        if force_refresh:
+            return self._fetch_and_cache_entity(entity_id)
+
+        # Try to get from cache
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM entities WHERE id = ?",
+                (entity_id,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                # Not in cache, fetch fresh
+                return self._fetch_and_cache_entity(entity_id)
+
+            # Check cache age
+            retrieved_at = datetime.datetime.fromisoformat(row["retrieved_at"])
+            cache_age_seconds = (datetime.datetime.now() - retrieved_at).total_seconds()
+
+            if cache_age_seconds < cache_ttl_seconds:
+                # Cache is fresh, trust it
+                logger.debug(f"Cache hit (fresh): {entity_id} (age: {cache_age_seconds:.0f}s)")
+                return json.loads(row["data"])
+
+            # Cache is stale, verify entity hasn't changed
+            logger.debug(f"Cache stale, checking modifications: {entity_id} (age: {cache_age_seconds:.0f}s)")
+            fresh_entity = self._fetch_entity_from_api(entity_id)
+
+            if not fresh_entity:
+                # Entity deleted or not found, remove from cache
+                cursor.execute("DELETE FROM entities WHERE id = ?", (entity_id,))
+                conn.commit()
+                return None
+
+            # Compare modification timestamps
+            cached_modified_at = row["entity_modified_at"]
+            fresh_modified_at = self._extract_entity_modified_at(fresh_entity)
+
+            if fresh_modified_at and cached_modified_at and fresh_modified_at <= cached_modified_at:
+                # Entity unchanged, just update retrieved_at
+                logger.debug(f"Entity unchanged, touching cache: {entity_id}")
+                cursor.execute(
+                    "UPDATE entities SET retrieved_at = ? WHERE id = ?",
+                    (datetime.datetime.now().isoformat(), entity_id)
+                )
+                conn.commit()
+                return json.loads(row["data"])
+
+            # Entity modified or missing timestamp, update cache
+            logger.debug(f"Entity modified, updating cache: {entity_id}")
+            return self._cache_entity(fresh_entity)
     
     def get_entities_by_type(self, entity_type: str, repo_id: str = None, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """
@@ -545,13 +637,13 @@ class AdoitApi:
     def invalidate_cache(self, older_than: Optional[datetime.datetime] = None):
         """
         Invalidate cache entries.
-        
+
         Args:
             older_than: Invalidate entries older than this datetime
         """
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            
+
             if older_than:
                 # Convert datetime to ISO format string
                 older_than_str = older_than.isoformat()
@@ -561,8 +653,35 @@ class AdoitApi:
                 # Invalidate all cache
                 cursor.execute("DELETE FROM entities")
                 cursor.execute("DELETE FROM relationships")
-            
+
             conn.commit()
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring."""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+
+            stats = {}
+
+            # Total entities
+            cursor.execute("SELECT COUNT(*) FROM entities")
+            stats['total_entities'] = cursor.fetchone()[0]
+
+            # Age distribution
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as count,
+                    AVG((julianday('now') - julianday(retrieved_at)) * 86400) as avg_age_seconds
+                FROM entities
+            """)
+            row = cursor.fetchone()
+            stats['avg_cache_age_seconds'] = row[1] if row[1] else 0
+
+            # Entities with modification timestamp
+            cursor.execute("SELECT COUNT(*) FROM entities WHERE entity_modified_at IS NOT NULL")
+            stats['entities_with_mod_timestamp'] = cursor.fetchone()[0]
+
+            return stats
 
 if __name__ == "__main__":
     api = AdoitApi()

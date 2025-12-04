@@ -33,11 +33,20 @@ The codebase is organized around these key components:
 
 1. **ADOit API Client** (`adoit_api.py`):
    - Provides authentication and communication with the ADOit REST API
-   - Implements SQLite caching layer with timestamps
+   - Implements intelligent TTL-based caching with modification timestamp checking
    - Handles data retrieval and cache invalidation
    - Database schema includes:
-     - `entities` table: Stores ArchiMate entities with timestamp information
+     - `entities` table: Stores ArchiMate entities with retrieval and modification timestamps
      - `relationships` table: Stores relationships between entities with timestamp information
+
+   **Smart Caching**:
+   - Configurable TTL (default: 48 hours, set via `ADOIT_CACHE_TTL` in `.env`)
+   - Returns cached data immediately if within TTL period
+   - For older cache entries, fetches from API and compares `DATE_OF_LAST_CHANGE` timestamps
+   - Only updates cache if entity actually changed on server (reduces unnecessary writes)
+   - Provides ~500x speedup for repeated report runs on stable data
+   - Use `force_refresh=True` to bypass cache completely
+   - Use `get_cache_stats()` to monitor cache effectiveness
 
 2. **Consistency Checker** (`consistency_check.py`):
    - Implements various checks against the ArchiMate data
@@ -83,10 +92,31 @@ The codebase is organized around these key components:
    - Use `--use-cache` for faster repeated runs (but data may be stale)
    - Adjust `--parallel-workers` based on API rate limits and system resources
 
-5. **Database Structure**:
+5. **OE Capability Report** (`oe_capability_report_hybrid.py`):
+   - Analyzes business applications and their capability mappings using embedded relationship data
+   - Extracts both organic (RC_REALIZATION) and aggregated (RC_CUST_AGGREGATED_*) capability links
+   - Filters capabilities by GDM level (L1, L2, L3)
+   - Tracks new vs deprecated "(do not use)" model statistics
+   - JSON output with detailed capability mappings and OE associations
+
+   **Key Features**:
+   - Uses search results with embedded RELATION attributes (no separate entity fetches)
+   - GDM level extraction from capability names (e.g., "3.2 Hr" → L3, "2.2.1 IT Operations" → L2)
+   - Capability caching to avoid redundant parsing
+   - Identifies unmapped applications and applications without OEs
+   - Tracks organic vs aggregated capability relationships
+
+   **Important Discovery**:
+   - Capabilities are repository objects (`artefactType: "REPOSITORY_OBJECT"`), not entities
+   - They cannot be fetched via `/entities/{id}` endpoint (returns 404)
+   - Level must be parsed from capability name pattern `^\d+\.` where first digit = level
+   - This avoids unnecessary API calls and improves performance
+
+6. **Database Structure**:
    - Located in `data/adoit_cache.db` (auto-created)
-   - Entities table: `id`, `type`, `name`, `data` (JSON), `retrieved_at`
+   - Entities table: `id`, `type`, `name`, `data` (JSON), `retrieved_at`, `entity_modified_at`
    - Relationships table: `id`, `source_id`, `target_id`, `type`, `data` (JSON), `retrieved_at`
+   - Smart caching with TTL and modification timestamp checking (see `ADOIT_CACHE_TTL` in `.env`)
 
 ## Common Commands
 
@@ -179,10 +209,22 @@ The ADOit REST API uses HMAC-SHA512 token-based authentication. Each request mus
 - `GET /rest/2.0/entities/{entity_id}/relations` - Get entity relationships
   - Returns: `{relations: [{id, fromId, toId, relationType, ...}]}`
 
+**Repository Objects**:
+- `GET /rest/2.0/repos/{repo_id}/objects/{object_id}` - Get repository object
+  - Some objects (like capabilities) have `artefactType: "REPOSITORY_OBJECT"`
+  - These cannot be fetched via `/entities/{id}` endpoint (returns 404)
+  - Must use the repository objects endpoint instead
+  - Search results include these objects with embedded relationship data
+
 ### Implementation Notes
 
 1. **Repository ID Format**: API returns IDs as `{uuid}` but URLs require just `uuid` (strip braces)
 2. **Query Parameters**: Must be included in HMAC calculation in specific order
 3. **Pagination**: The `adoit_request_paginated()` function automatically handles multi-page results
-4. **Caching**: Entity and relationship data is cached in SQLite with timestamps for invalidation
+4. **Caching**: Entity and relationship data is cached in SQLite with TTL and modification timestamps
 5. **Error Handling**: 401 errors typically indicate HMAC token calculation issues (check locale sorting)
+6. **Repository Objects vs Entities**:
+   - Search results can include both entity objects and repository objects
+   - Check `artefactType` field: "REPOSITORY_OBJECT" requires `/repos/{id}/objects/{id}` endpoint
+   - Capabilities are typically repository objects, not entities
+   - Prefer using embedded relationship data from search results over separate entity fetches
