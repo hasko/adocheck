@@ -308,9 +308,13 @@ class OECapabilityReporterHybrid:
                     stats_dict['unmapped'] += 1
 
             # Add to OE groups
+            # Exclude Group Standards from "Applications Without OE" - they don't need OE mapping
+            is_group_standard = "(Group Standard)" in app_name or "(Declassified Group Standard)" in app_name or "(Future Group Standard)" in app_name
+
             if not oes:
-                no_oe_results['applications'].append(app_data)
-                update_stats(no_oe_results['statistics'])
+                if not is_group_standard:
+                    no_oe_results['applications'].append(app_data)
+                    update_stats(no_oe_results['statistics'])
             else:
                 for oe_id, oe_name in oes:
                     oe_results[oe_id]['oe_name'] = oe_name
