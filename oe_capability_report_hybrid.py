@@ -697,9 +697,9 @@ class OECapabilityReporterHybrid:
             </div>
         </div>
 
-        {oe_sections}
-
         {no_oe_section}
+
+        {oe_sections}
     </div>
 
     <script>
@@ -794,13 +794,76 @@ class OECapabilityReporterHybrid:
 
         return output_path
 
+    def _categorize_application(self, app: Dict[str, Any]) -> tuple:
+        """
+        Categorize application by mapping status for sorting priority.
+
+        Returns: (priority, category_name)
+        Priority: 0=unmapped, 1=old only, 2=mixed, 3=new only
+        """
+        organic_caps = app.get('organic_capabilities', {})
+        aggregated_caps = app.get('aggregated_capabilities', {})
+
+        # Count deprecated vs non-deprecated capabilities
+        def count_deprecated(caps):
+            total = 0
+            deprecated = 0
+            for cap_list in caps.values():
+                for cap in cap_list:
+                    total += 1
+                    if cap.get('deprecated', False):
+                        deprecated += 1
+            return total, deprecated
+
+        organic_total, organic_dep = count_deprecated(organic_caps)
+        agg_total, agg_dep = count_deprecated(aggregated_caps)
+
+        total_caps = organic_total + agg_total
+        total_dep = organic_dep + agg_dep
+
+        # Categorize
+        if total_caps == 0:
+            return (0, "Unmapped")
+        elif total_dep == total_caps:
+            return (1, "Old Model Only")
+        elif total_dep > 0:
+            return (2, "Mixed (Old + New)")
+        else:
+            return (3, "New Model Only")
+
     def _generate_applications_table(self, applications: List[Dict[str, Any]]) -> str:
-        """Generate HTML table for applications."""
+        """Generate HTML table for applications, sorted by priority."""
         if not applications:
             return '<div class="no-data">No applications</div>'
 
+        # Sort applications by priority
+        sorted_apps = sorted(applications, key=lambda app: self._categorize_application(app)[0])
+
+        # Group by category
         rows = []
-        for app in applications:
+        current_category = None
+
+        for app in sorted_apps:
+            priority, category = self._categorize_application(app)
+
+            # Add category header if changed
+            if category != current_category:
+                current_category = category
+                category_colors = {
+                    "Unmapped": "#dc3545",
+                    "Old Model Only": "#fd7e14",
+                    "Mixed (Old + New)": "#ffc107",
+                    "New Model Only": "#28a745"
+                }
+                color = category_colors.get(category, "#6c757d")
+                rows.append(f"""
+                    <tr style="background: {color}15; border-left: 4px solid {color};">
+                        <td colspan="3" style="font-weight: bold; color: {color}; padding: 12px;">
+                            {category}
+                        </td>
+                    </tr>
+                """)
+
             app_name = app.get('name', 'Unknown')
 
             # Format organic capabilities
@@ -900,9 +963,20 @@ class OECapabilityReporterHybrid:
         lines.append(f"- **New Model:** {summary.get('aggregated_new_model', 0)} ({summary.get('aggregated_new_pct', 0):.1f}%)")
         lines.append(f"- **Old Model (deprecated):** {summary.get('aggregated_old_model', 0)} ({summary.get('aggregated_old_pct', 0):.1f}%)\n")
 
-        # OE Sections
+        # Applications Without OE (show first for priority)
         lines.append("## Organizational Entities\n")
 
+        if no_oe.get('applications'):
+            lines.append("### Applications Without OE\n")
+            stats = no_oe.get('statistics', {})
+            lines.append(f"**Statistics:**")
+            lines.append(f"- Total Applications: {stats.get('total_applications', 0)}")
+            lines.append(f"- Organic Mapped: {stats.get('organic_mapped', 0)}")
+            lines.append(f"- Aggregated Mapped: {stats.get('aggregated_mapped', 0)}")
+            lines.append(f"- Unmapped: {stats.get('unmapped', 0)}\n")
+            lines.append(self._generate_applications_markdown_table(no_oe['applications']))
+
+        # OE Sections
         for oe_id, oe_data in sorted(oes.items(), key=lambda x: x[1].get('oe_name', '')):
             oe_name = oe_data.get('oe_name', 'Unknown OE')
             stats = oe_data.get('statistics', {})
@@ -920,17 +994,6 @@ class OECapabilityReporterHybrid:
             else:
                 lines.append("_No applications_\n")
 
-        # Applications Without OE
-        if no_oe.get('applications'):
-            lines.append("### Applications Without OE\n")
-            stats = no_oe.get('statistics', {})
-            lines.append(f"**Statistics:**")
-            lines.append(f"- Total Applications: {stats.get('total_applications', 0)}")
-            lines.append(f"- Organic Mapped: {stats.get('organic_mapped', 0)}")
-            lines.append(f"- Aggregated Mapped: {stats.get('aggregated_mapped', 0)}")
-            lines.append(f"- Unmapped: {stats.get('unmapped', 0)}\n")
-            lines.append(self._generate_applications_markdown_table(no_oe['applications']))
-
         # Write file
         markdown_content = '\n'.join(lines)
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -939,15 +1002,38 @@ class OECapabilityReporterHybrid:
         return output_path
 
     def _generate_applications_markdown_table(self, applications: List[Dict[str, Any]]) -> str:
-        """Generate Markdown table for applications."""
+        """Generate Markdown table for applications, sorted by priority."""
         if not applications:
             return "_No applications_\n"
 
-        lines = []
-        lines.append("| Application | Status | Organic Capabilities | Aggregated Capabilities |")
-        lines.append("|------------|--------|---------------------|------------------------|")
+        # Sort applications by priority
+        sorted_apps = sorted(applications, key=lambda app: self._categorize_application(app)[0])
 
-        for app in applications:
+        lines = []
+        current_category = None
+
+        for app in sorted_apps:
+            priority, category = self._categorize_application(app)
+
+            # Add category header if changed
+            if category != current_category:
+                current_category = category
+
+                # Add table header for new category
+                if lines:  # Add spacing between categories
+                    lines.append("")
+
+                category_emoji = {
+                    "Unmapped": "🔴",
+                    "Old Model Only": "🟠",
+                    "Mixed (Old + New)": "🟡",
+                    "New Model Only": "🟢"
+                }
+                emoji = category_emoji.get(category, "⚪")
+                lines.append(f"#### {emoji} {category}\n")
+                lines.append("| Application | Status | Organic Capabilities | Aggregated Capabilities |")
+                lines.append("|------------|--------|---------------------|------------------------|")
+
             app_name = app.get('name', 'Unknown')
 
             # Status
