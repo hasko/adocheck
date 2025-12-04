@@ -65,16 +65,28 @@ class OECapabilityReporterHybrid:
         if not cap_name:
             return None
 
-        # Parse level from name (e.g., "3.2 Hr" → L3, "2.2.1 IT Operations" → L2)
+        # Parse level from name by counting hierarchical segments
+        # L1: "1.", "2.", "3." (1 segment)
+        # L2: "1.1", "3.2" (2 segments)
+        # L3: "1.1.3", "2.2.1" (3 segments)
         import re
-        match = re.match(r'^(\d+)\.', cap_name)
-        if match:
-            level_num = int(match.group(1))
-            if 1 <= level_num <= 3:  # Only L1, L2, L3 are valid GDM levels
-                level = f'L{level_num}'
-                is_deprecated = "(do not use)" in cap_name.lower()
-                self.capability_cache[cap_id] = (cap_name, level, is_deprecated)
-                return level
+
+        # Extract the numbering part (before first space)
+        numbering = cap_name.split()[0] if ' ' in cap_name else cap_name
+
+        # Remove trailing dot if present
+        if numbering.endswith('.'):
+            numbering = numbering[:-1]
+
+        # Count non-empty segments
+        segments = [s for s in numbering.split('.') if s]
+        level_num = len(segments)
+
+        if 1 <= level_num <= 3:  # Only L1, L2, L3 are valid GDM levels
+            level = f'L{level_num}'
+            is_deprecated = "(do not use)" in cap_name.lower()
+            self.capability_cache[cap_id] = (cap_name, level, is_deprecated)
+            return level
 
         return None
 
@@ -170,7 +182,8 @@ class OECapabilityReporterHybrid:
         try:
             filters = [
                 {"className": ["C_APPLICATION_COMPONENT"]},
-                {"attrName": "A_APPLICATION_COMPONENT_SPEC", "value": app_specialisation, "op": "OP_EQ"}
+                {"attrName": "A_APPLICATION_COMPONENT_SPEC", "value": app_specialisation, "op": "OP_EQ"},
+                {"attrName": "A_LIFECYCLE_STATE", "value": "In production", "op": "OP_EQ"}
             ]
             applications = self.api.get_entities_by_filters(filters, force_refresh=not self.use_cache)
             logger.info(f"✓ Found {len(applications)} business applications")
