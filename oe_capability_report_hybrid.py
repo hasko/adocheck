@@ -714,9 +714,10 @@ class OECapabilityReporterHybrid:
 </html>"""
 
         # Extract data
-        metadata = json_data.get('metadata', {})
-        summary = json_data.get('summary_statistics', {})
-        oes = json_data.get('oes', {})
+        report_metadata = json_data.get('report_metadata', {})
+        summary = report_metadata.get('summary_statistics', {})
+        filters = report_metadata.get('filters_applied', {})
+        oes = json_data.get('by_oe', {})
         no_oe = json_data.get('applications_without_oe', {})
 
         # Format OE sections
@@ -767,9 +768,9 @@ class OECapabilityReporterHybrid:
 
         # Generate HTML
         html = html_template.format(
-            generated_at=metadata.get('generated_at', 'Unknown'),
-            gdm_levels=', '.join(metadata.get('gdm_levels', [])),
-            app_specialisation=metadata.get('app_specialisation', 'Unknown'),
+            generated_at=report_metadata.get('generated_at', 'Unknown'),
+            gdm_levels=', '.join(filters.get('gdm_levels', [])),
+            app_specialisation=filters.get('application_specialisation', 'Unknown'),
             total_oes=summary.get('total_oes', 0),
             total_applications=summary.get('total_applications', 0),
             unmapped=summary.get('unmapped', 0),
@@ -866,9 +867,10 @@ class OECapabilityReporterHybrid:
         lines = []
 
         # Extract data
-        metadata = json_data.get('metadata', {})
-        summary = json_data.get('summary_statistics', {})
-        oes = json_data.get('oes', {})
+        report_metadata = json_data.get('report_metadata', {})
+        summary = report_metadata.get('summary_statistics', {})
+        filters = report_metadata.get('filters_applied', {})
+        oes = json_data.get('by_oe', {})
         no_oe = json_data.get('applications_without_oe', {})
 
         # Header
@@ -876,9 +878,9 @@ class OECapabilityReporterHybrid:
 
         # Metadata
         lines.append("## Report Information\n")
-        lines.append(f"- **Generated:** {metadata.get('generated_at', 'Unknown')}")
-        lines.append(f"- **GDM Levels:** {', '.join(metadata.get('gdm_levels', []))}")
-        lines.append(f"- **Application Specialisation:** {metadata.get('app_specialisation', 'Unknown')}\n")
+        lines.append(f"- **Generated:** {report_metadata.get('generated_at', 'Unknown')}")
+        lines.append(f"- **GDM Levels:** {', '.join(filters.get('gdm_levels', []))}")
+        lines.append(f"- **Application Specialisation:** {filters.get('application_specialisation', 'Unknown')}\n")
 
         # Summary Statistics
         lines.append("## Summary Statistics\n")
