@@ -109,7 +109,11 @@ The codebase is organized around these key components:
 
    **Output Formats**:
    - **JSON** (default): Complete structured data with metadata and statistics
-   - **HTML** (`--html` flag): Interactive web report with collapsible sections, color-coded categories
+   - **HTML** (`--html` flag): Interactive web report with collapsible sections, color-coded categories, and Chart.js visualizations
+     - OE Assignment Distribution (doughnut chart)
+     - Mapping Status Distribution (bar chart)
+     - Model Migration Progress (doughnut chart)
+     - Applications by OE (stacked horizontal bar chart)
    - **Markdown** (`--markdown` or `--md` flag): Clean markdown tables with emoji indicators
 
    **Priority Sorting**:
