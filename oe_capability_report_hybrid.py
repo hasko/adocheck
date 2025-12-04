@@ -34,19 +34,78 @@ class OECapabilityReporterHybrid:
         self.oe_cache = {}  # {oe_id: oe_name}
         self.capability_cache = {}  # {cap_id: (cap_name, cap_level, is_deprecated)}
 
-    def extract_oes_from_application(self, app: Dict[str, Any]) -> List[Tuple[str, str]]:
-        """Extract OE IDs and names from application's "Using" relation."""
-        oes = []
+    def extract_les_from_application(self, app: Dict[str, Any]) -> List[Tuple[str, str]]:
+        """Extract LE (Legal Entity) IDs and names from application's 'Using' relation."""
+        les = []
         for attr in app.get('attributes', []):
             if attr.get('metaName') == 'RC_CUST_ORG_UNIT_USING':
                 targets = attr.get('targets', [])
                 for target in targets:
-                    oe_id = target.get('id', '').strip('{}')
-                    oe_name = target.get('name', 'Unknown OE')
-                    if oe_id:
-                        oes.append((oe_id, oe_name))
-                        self.oe_cache[oe_id] = oe_name
-        return oes
+                    le_id = target.get('id', '').strip('{}')
+                    le_name = target.get('name', 'Unknown LE')
+                    if le_id:
+                        les.append((le_id, le_name))
+                        self.oe_cache[le_id] = le_name  # Keep cache name for now
+        return les
+
+    def extract_oe_from_le(self, le_name: str) -> str:
+        """
+        Extract OE (Operating Entity) name from LE (Legal Entity) name prefix.
+
+        Examples:
+        - "Allianz Technology SE (DE1632)" → "Allianz Technology SE"
+        - "Allianz Technology Branch UK (DE1632)" → "Allianz Technology SE"
+        - "AZS Germany" → "AZS Germany"
+        - "Allianz France (FR)" → "Allianz France"
+        """
+        # Remove parenthetical code if present
+        if '(' in le_name and ')' in le_name:
+            prefix = le_name.split('(')[0].strip()
+
+            # If it's a "Branch", extract the parent company name
+            if 'Branch' in prefix:
+                # "Allianz Technology Branch UK" → "Allianz Technology SE"
+                words = prefix.split()
+                if 'Branch' in words:
+                    branch_idx = words.index('Branch')
+                    company_name = ' '.join(words[:branch_idx]) + ' SE'
+                    return company_name
+                else:
+                    # Fallback if Branch not found as separate word
+                    return prefix
+            else:
+                # Direct OE name (prefix before parentheses)
+                return prefix
+        else:
+            # No parenthetical - LE name is OE name
+            return le_name
+
+    def derive_region_from_le(self, le_name: str, oe_name: str) -> str:
+        """
+        Derive region from LE/OE name, or return OE as standalone region.
+
+        Regions:
+        - IberoLatAm: Any LE with "IberoLatAm" in name
+        - APAC: LEs in Asia-Pacific (India, Singapore, Malaysia, etc.)
+        - Central Europe: LEs in CE countries (Germany, Austria, Switzerland, etc.)
+        - Other: Return OE name as standalone region
+        """
+        # IberoLatAm
+        if 'IberoLatAm' in le_name or 'IberoLatam' in le_name:
+            return 'IberoLatAm'
+
+        # APAC - check for Asian countries
+        apac_keywords = ['India', 'Singapore', 'Malaysia', 'APAC', 'Asia', 'Indonesia']
+        if any(kw in le_name for kw in apac_keywords):
+            return 'APAC'
+
+        # Central Europe - check for CE countries
+        ce_keywords = ['Germany', 'Austria', 'Switzerland', 'Czech', 'Slovakia', 'Poland', 'Hungary']
+        if any(kw in le_name for kw in ce_keywords):
+            return 'Central Europe'
+
+        # Standalone OE - return OE name as region
+        return oe_name
 
     def get_capability_level(self, cap_id: str, cap_name: Optional[str] = None) -> Optional[str]:
         """
@@ -198,13 +257,12 @@ class OECapabilityReporterHybrid:
 
         # Step 2: Extract capabilities and OEs
         logger.info("=" * 60)
-        logger.info("Extracting capabilities and OEs...")
+        logger.info("Extracting capabilities, LEs, OEs, and Regions...")
         logger.info("=" * 60)
 
-        oe_results = defaultdict(lambda: {
-            'oe_name': '',
-            'applications': [],
-            'statistics': {
+        # Three-level hierarchy: Region > OE > LE
+        def create_stats_dict():
+            return {
                 'total_applications': 0,
                 'organic_mapped': 0,
                 'aggregated_mapped': 0,
@@ -218,24 +276,33 @@ class OECapabilityReporterHybrid:
                     'aggregated': defaultdict(int)
                 }
             }
-        })
 
-        no_oe_results = {
-            'applications': [],
-            'statistics': {
-                'total_applications': 0,
-                'organic_mapped': 0,
-                'aggregated_mapped': 0,
-                'unmapped': 0,
-                'organic_new_model': 0,
-                'organic_old_model': 0,
-                'aggregated_new_model': 0,
-                'aggregated_old_model': 0,
-                'capabilities_by_type': {
-                    'organic': defaultdict(int),
-                    'aggregated': defaultdict(int)
-                }
+        def create_le_dict():
+            return {
+                'le_name': '',
+                'applications': [],
+                'statistics': create_stats_dict()
             }
+
+        def create_oe_dict():
+            return {
+                'oe_name': '',
+                'by_le': {},
+                'oe_statistics': create_stats_dict()
+            }
+
+        def create_region_dict():
+            return {
+                'region_name': '',
+                'by_oe': {},
+                'region_statistics': create_stats_dict()
+            }
+
+        region_results = defaultdict(create_region_dict)
+
+        no_le_results = {
+            'applications': [],
+            'statistics': create_stats_dict()
         }
 
         for i, app in enumerate(applications):
@@ -246,8 +313,8 @@ class OECapabilityReporterHybrid:
             app_name = app.get('name', 'Unknown')
             app_type = app.get('type', 'Application Component')
 
-            # Extract OEs
-            oes = self.extract_oes_from_application(app)
+            # Extract LEs (Legal Entities)
+            les = self.extract_les_from_application(app)
 
             # Extract capabilities
             app_capabilities = self.extract_capabilities_from_application(app, gdm_levels)
@@ -320,48 +387,137 @@ class OECapabilityReporterHybrid:
                 if not has_organic and not has_aggregated:
                     stats_dict['unmapped'] += 1
 
-            # Add to OE groups
-            # Exclude Group Standards from "Applications Without OE" - they don't need OE mapping
+            # Add to Region > OE > LE hierarchy
+            # Exclude Group Standards from "Applications Without LE" - they don't need LE mapping
             is_group_standard = "(Group Standard)" in app_name or "(Declassified Group Standard)" in app_name or "(Future Group Standard)" in app_name
 
-            if not oes:
+            if not les:
                 if not is_group_standard:
-                    no_oe_results['applications'].append(app_data)
-                    update_stats(no_oe_results['statistics'])
+                    no_le_results['applications'].append(app_data)
+                    update_stats(no_le_results['statistics'])
             else:
-                for oe_id, oe_name in oes:
-                    oe_results[oe_id]['oe_name'] = oe_name
-                    oe_results[oe_id]['applications'].append(app_data)
-                    update_stats(oe_results[oe_id]['statistics'])
+                for le_id, le_name in les:
+                    # Extract OE from LE
+                    oe_name = self.extract_oe_from_le(le_name)
 
-        # Convert defaultdicts
-        for oe_id in oe_results:
-            oe_results[oe_id]['statistics']['capabilities_by_type']['organic'] = dict(
-                oe_results[oe_id]['statistics']['capabilities_by_type']['organic']
+                    # Derive Region from LE and OE
+                    region_name = self.derive_region_from_le(le_name, oe_name)
+
+                    # Ensure region exists
+                    if region_results[region_name]['region_name'] == '':
+                        region_results[region_name]['region_name'] = region_name
+
+                    # Ensure OE exists within region
+                    if oe_name not in region_results[region_name]['by_oe']:
+                        region_results[region_name]['by_oe'][oe_name] = create_oe_dict()
+                        region_results[region_name]['by_oe'][oe_name]['oe_name'] = oe_name
+
+                    # Ensure LE exists within OE
+                    if le_id not in region_results[region_name]['by_oe'][oe_name]['by_le']:
+                        region_results[region_name]['by_oe'][oe_name]['by_le'][le_id] = create_le_dict()
+                        region_results[region_name]['by_oe'][oe_name]['by_le'][le_id]['le_name'] = le_name
+
+                    # Add application to LE
+                    region_results[region_name]['by_oe'][oe_name]['by_le'][le_id]['applications'].append(app_data)
+
+                    # Update LE-level statistics
+                    update_stats(region_results[region_name]['by_oe'][oe_name]['by_le'][le_id]['statistics'])
+
+        # Convert defaultdicts and aggregate statistics from LE → OE → Region
+        for region_name, region_data in region_results.items():
+            for oe_name, oe_data in region_data['by_oe'].items():
+                # Aggregate OE-level statistics from all LEs
+                for le_id, le_data in oe_data['by_le'].items():
+                    # Convert LE-level defaultdicts
+                    le_data['statistics']['capabilities_by_type']['organic'] = dict(
+                        le_data['statistics']['capabilities_by_type']['organic']
+                    )
+                    le_data['statistics']['capabilities_by_type']['aggregated'] = dict(
+                        le_data['statistics']['capabilities_by_type']['aggregated']
+                    )
+
+                    # Aggregate to OE level
+                    oe_stats = oe_data['oe_statistics']
+                    le_stats = le_data['statistics']
+                    oe_stats['total_applications'] += le_stats['total_applications']
+                    oe_stats['organic_mapped'] += le_stats['organic_mapped']
+                    oe_stats['aggregated_mapped'] += le_stats['aggregated_mapped']
+                    oe_stats['unmapped'] += le_stats['unmapped']
+                    oe_stats['organic_new_model'] += le_stats['organic_new_model']
+                    oe_stats['organic_old_model'] += le_stats['organic_old_model']
+                    oe_stats['aggregated_new_model'] += le_stats['aggregated_new_model']
+                    oe_stats['aggregated_old_model'] += le_stats['aggregated_old_model']
+
+                    # Aggregate capability counts
+                    for cap_name, count in le_stats['capabilities_by_type']['organic'].items():
+                        oe_stats['capabilities_by_type']['organic'][cap_name] += count
+                    for cap_name, count in le_stats['capabilities_by_type']['aggregated'].items():
+                        oe_stats['capabilities_by_type']['aggregated'][cap_name] += count
+
+                # Convert OE-level defaultdicts
+                oe_data['oe_statistics']['capabilities_by_type']['organic'] = dict(
+                    oe_data['oe_statistics']['capabilities_by_type']['organic']
+                )
+                oe_data['oe_statistics']['capabilities_by_type']['aggregated'] = dict(
+                    oe_data['oe_statistics']['capabilities_by_type']['aggregated']
+                )
+
+                # Aggregate to Region level
+                region_stats = region_data['region_statistics']
+                oe_stats = oe_data['oe_statistics']
+                region_stats['total_applications'] += oe_stats['total_applications']
+                region_stats['organic_mapped'] += oe_stats['organic_mapped']
+                region_stats['aggregated_mapped'] += oe_stats['aggregated_mapped']
+                region_stats['unmapped'] += oe_stats['unmapped']
+                region_stats['organic_new_model'] += oe_stats['organic_new_model']
+                region_stats['organic_old_model'] += oe_stats['organic_old_model']
+                region_stats['aggregated_new_model'] += oe_stats['aggregated_new_model']
+                region_stats['aggregated_old_model'] += oe_stats['aggregated_old_model']
+
+                # Aggregate capability counts
+                for cap_name, count in oe_stats['capabilities_by_type']['organic'].items():
+                    region_stats['capabilities_by_type']['organic'][cap_name] += count
+                for cap_name, count in oe_stats['capabilities_by_type']['aggregated'].items():
+                    region_stats['capabilities_by_type']['aggregated'][cap_name] += count
+
+            # Convert Region-level defaultdicts
+            region_data['region_statistics']['capabilities_by_type']['organic'] = dict(
+                region_data['region_statistics']['capabilities_by_type']['organic']
             )
-            oe_results[oe_id]['statistics']['capabilities_by_type']['aggregated'] = dict(
-                oe_results[oe_id]['statistics']['capabilities_by_type']['aggregated']
+            region_data['region_statistics']['capabilities_by_type']['aggregated'] = dict(
+                region_data['region_statistics']['capabilities_by_type']['aggregated']
             )
 
-        no_oe_results['statistics']['capabilities_by_type']['organic'] = dict(
-            no_oe_results['statistics']['capabilities_by_type']['organic']
+        # Convert no_le_results defaultdicts
+        no_le_results['statistics']['capabilities_by_type']['organic'] = dict(
+            no_le_results['statistics']['capabilities_by_type']['organic']
         )
-        no_oe_results['statistics']['capabilities_by_type']['aggregated'] = dict(
-            no_oe_results['statistics']['capabilities_by_type']['aggregated']
+        no_le_results['statistics']['capabilities_by_type']['aggregated'] = dict(
+            no_le_results['statistics']['capabilities_by_type']['aggregated']
         )
 
-        # Build summary
+        # Build summary statistics
+        total_regions = len(region_results)
+        total_oes = sum(len(region_data['by_oe']) for region_data in region_results.values())
+        total_les = sum(
+            len(oe_data['by_le'])
+            for region_data in region_results.values()
+            for oe_data in region_data['by_oe'].values()
+        )
+
         summary_stats = {
-            'total_oes': len(oe_results),
+            'total_regions': total_regions,
+            'total_oes': total_oes,
+            'total_les': total_les,
             'total_applications': len(applications),
-            'organic_mapped': sum(oe['statistics']['organic_mapped'] for oe in oe_results.values()) + no_oe_results['statistics']['organic_mapped'],
-            'aggregated_mapped': sum(oe['statistics']['aggregated_mapped'] for oe in oe_results.values()) + no_oe_results['statistics']['aggregated_mapped'],
-            'unmapped': sum(oe['statistics']['unmapped'] for oe in oe_results.values()) + no_oe_results['statistics']['unmapped'],
-            'organic_new_model': sum(oe['statistics']['organic_new_model'] for oe in oe_results.values()) + no_oe_results['statistics']['organic_new_model'],
-            'organic_old_model': sum(oe['statistics']['organic_old_model'] for oe in oe_results.values()) + no_oe_results['statistics']['organic_old_model'],
-            'aggregated_new_model': sum(oe['statistics']['aggregated_new_model'] for oe in oe_results.values()) + no_oe_results['statistics']['aggregated_new_model'],
-            'aggregated_old_model': sum(oe['statistics']['aggregated_old_model'] for oe in oe_results.values()) + no_oe_results['statistics']['aggregated_old_model'],
-            'applications_without_oe': no_oe_results['statistics']['total_applications']
+            'organic_mapped': sum(r['region_statistics']['organic_mapped'] for r in region_results.values()) + no_le_results['statistics']['organic_mapped'],
+            'aggregated_mapped': sum(r['region_statistics']['aggregated_mapped'] for r in region_results.values()) + no_le_results['statistics']['aggregated_mapped'],
+            'unmapped': sum(r['region_statistics']['unmapped'] for r in region_results.values()) + no_le_results['statistics']['unmapped'],
+            'organic_new_model': sum(r['region_statistics']['organic_new_model'] for r in region_results.values()) + no_le_results['statistics']['organic_new_model'],
+            'organic_old_model': sum(r['region_statistics']['organic_old_model'] for r in region_results.values()) + no_le_results['statistics']['organic_old_model'],
+            'aggregated_new_model': sum(r['region_statistics']['aggregated_new_model'] for r in region_results.values()) + no_le_results['statistics']['aggregated_new_model'],
+            'aggregated_old_model': sum(r['region_statistics']['aggregated_old_model'] for r in region_results.values()) + no_le_results['statistics']['aggregated_old_model'],
+            'applications_without_le': no_le_results['statistics']['total_applications']
         }
 
         # Calculate percentages
@@ -383,8 +539,13 @@ class OECapabilityReporterHybrid:
         report = {
             'report_metadata': {
                 'generated_at': datetime.datetime.now().isoformat(),
-                'report_type': 'oe_capability_mapping_hybrid',
-                'description': 'Shows both organic (RC_REALIZATION) and aggregated capability links',
+                'report_type': 'oe_capability_mapping_hybrid_hierarchical',
+                'description': 'Hierarchical report: Region > OE > LE with organic (RC_REALIZATION) and aggregated capability links',
+                'hierarchy': {
+                    'level_1': 'Region',
+                    'level_2': 'Operating Entity (OE)',
+                    'level_3': 'Legal Entity (LE)'
+                },
                 'filters_applied': {
                     'application_class': 'C_APPLICATION_COMPONENT',
                     'application_specialisation': app_specialisation,
@@ -392,11 +553,11 @@ class OECapabilityReporterHybrid:
                 },
                 'summary_statistics': summary_stats
             },
-            'by_oe': {oe_id: oe_data for oe_id, oe_data in sorted(
-                oe_results.items(),
-                key=lambda x: x[1]['oe_name']
+            'by_region': {region_name: region_data for region_name, region_data in sorted(
+                region_results.items(),
+                key=lambda x: x[0]  # Sort by region name
             )},
-            'applications_without_oe': no_oe_results
+            'applications_without_le': no_le_results
         }
 
         # Write to file
@@ -409,8 +570,10 @@ class OECapabilityReporterHybrid:
         logger.info("\n" + "=" * 60)
         logger.info(f"✓ Report generated: {output_path}")
         logger.info(f"  Size: {Path(output_path).stat().st_size / 1024:.1f} KB")
-        logger.info(f"\nSummary Statistics:")
-        logger.info(f"  Total OEs: {summary_stats['total_oes']}")
+        logger.info(f"\nHierarchical Summary:")
+        logger.info(f"  Total Regions: {summary_stats['total_regions']}")
+        logger.info(f"  Total Operating Entities (OEs): {summary_stats['total_oes']}")
+        logger.info(f"  Total Legal Entities (LEs): {summary_stats['total_les']}")
         logger.info(f"  Total Applications: {summary_stats['total_applications']}")
         logger.info(f"\n  ORGANIC Links (RC_REALIZATION - actual relationships):")
         logger.info(f"    - Mapped: {summary_stats['organic_mapped']}")
@@ -421,7 +584,7 @@ class OECapabilityReporterHybrid:
         logger.info(f"    - New Model: {summary_stats['aggregated_new_model']} ({summary_stats['aggregated_new_pct']:.1f}%)")
         logger.info(f"    - Old Model (deprecated): {summary_stats['aggregated_old_model']} ({summary_stats['aggregated_old_pct']:.1f}%)")
         logger.info(f"\n  Unmapped: {summary_stats['unmapped']}")
-        logger.info(f"  Without OE: {summary_stats['applications_without_oe']}")
+        logger.info(f"  Without LE: {summary_stats['applications_without_le']}")
         logger.info("\n" + "=" * 60)
         logger.info("OE CAPABILITY REPORT - COMPLETE")
         logger.info("=" * 60)

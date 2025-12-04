@@ -95,17 +95,26 @@ The codebase is organized around these key components:
 5. **OE Capability Report** (`oe_capability_report_hybrid.py`):
    - Analyzes business applications and their capability mappings using embedded relationship data
    - Extracts both organic (RC_REALIZATION) and aggregated (RC_CUST_AGGREGATED_*) capability links
-   - Filters capabilities by GDM level (L1, L2, L3)
+   - Filters capabilities by GDM level (L1, L2, L3) - counts hierarchical segments in capability names
+   - Filters applications by lifecycle state ("In production")
    - Tracks new vs deprecated "(do not use)" model statistics
-   - Multiple output formats: JSON, HTML, and Markdown
+   - **Three-level organizational hierarchy: Region > OE > LE**
+   - Multiple output formats: JSON, HTML (partial), and Markdown (partial)
+
+   **Hierarchical Structure**:
+   - **Level 1 - Region**: IberoLatAm, APAC, Central Europe, or standalone large OEs
+   - **Level 2 - Operating Entity (OE)**: Extracted from LE name prefix (e.g., "Allianz Technology SE")
+   - **Level 3 - Legal Entity (LE)**: Extracted from application's RC_CUST_ORG_UNIT_USING relation
+   - Statistics aggregated at all three levels (LE → OE → Region)
 
    **Key Features**:
    - Uses search results with embedded RELATION attributes (no separate entity fetches)
-   - GDM level extraction from capability names (e.g., "3.2 Hr" → L3, "2.2.1 IT Operations" → L2)
+   - GDM level extraction counts hierarchical segments (1 segment = L1, 2 = L2, 3 = L3)
    - Capability caching to avoid redundant parsing
-   - Identifies unmapped applications and applications without OEs
+   - Identifies unmapped applications and applications without LEs
    - Tracks organic vs aggregated capability relationships
-   - Priority-based organization: Applications without OE shown first, then sorted by mapping status
+   - Priority-based organization: Applications without LE shown first, then sorted by mapping status
+   - Lifecycle state filtering: Only includes "In production" applications
 
    **Output Formats**:
    - **JSON** (default): Complete structured data with metadata and statistics
