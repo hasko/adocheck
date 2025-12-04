@@ -423,6 +423,7 @@ class OECapabilityReporterHybrid:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OE Capability Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {{
             margin: 0;
@@ -665,6 +666,39 @@ class OECapabilityReporterHybrid:
             color: #999;
             font-style: italic;
         }}
+
+        .charts-section {{
+            margin: 40px 0;
+        }}
+
+        .charts-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 30px;
+            margin-top: 20px;
+        }}
+
+        .chart-container {{
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }}
+
+        .chart-container h3 {{
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }}
+
+        .chart-wrapper {{
+            position: relative;
+            height: 300px;
+        }}
+
+        .chart-wrapper.tall {{
+            height: 400px;
+        }}
     </style>
 </head>
 <body>
@@ -701,6 +735,36 @@ class OECapabilityReporterHybrid:
             </div>
         </div>
 
+        <div class="charts-section">
+            <h2>Visual Analysis</h2>
+            <div class="charts-grid">
+                <div class="chart-container">
+                    <h3>OE Assignment Distribution</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="oeAssignmentChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <h3>Mapping Status Distribution</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="mappingStatusChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <h3>Model Migration Progress</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="modelMigrationChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <h3>Applications by OE</h3>
+                    <div class="chart-wrapper tall">
+                        <canvas id="oeBreakdownChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {no_oe_section}
 
         {oe_sections}
@@ -713,6 +777,178 @@ class OECapabilityReporterHybrid:
             content.classList.toggle('collapsed');
             icon.classList.toggle('collapsed');
         }}
+
+        // Chart data
+        const chartData = {chart_data_json};
+
+        // Chart colors
+        const colors = {{
+            unmapped: '#dc3545',
+            oldOnly: '#fd7e14',
+            mixed: '#ffc107',
+            newOnly: '#28a745',
+            withOE: '#3498db',
+            withoutOE: '#e74c3c'
+        }};
+
+        // OE Assignment Chart
+        new Chart(document.getElementById('oeAssignmentChart'), {{
+            type: 'doughnut',
+            data: {{
+                labels: ['Applications with OE', 'Applications without OE'],
+                datasets: [{{
+                    data: [chartData.apps_with_oe, chartData.apps_without_oe],
+                    backgroundColor: [colors.withOE, colors.withoutOE],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{
+                    legend: {{
+                        position: 'bottom'
+                    }},
+                    tooltip: {{
+                        callbacks: {{
+                            label: function(context) {{
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }});
+
+        // Mapping Status Chart
+        new Chart(document.getElementById('mappingStatusChart'), {{
+            type: 'bar',
+            data: {{
+                labels: ['Unmapped', 'Old Model Only', 'Mixed', 'New Model Only'],
+                datasets: [{{
+                    label: 'Applications',
+                    data: [
+                        chartData.unmapped,
+                        chartData.old_only,
+                        chartData.mixed,
+                        chartData.new_only
+                    ],
+                    backgroundColor: [
+                        colors.unmapped,
+                        colors.oldOnly,
+                        colors.mixed,
+                        colors.newOnly
+                    ],
+                    borderWidth: 0
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{
+                    legend: {{
+                        display: false
+                    }}
+                }},
+                scales: {{
+                    y: {{
+                        beginAtZero: true,
+                        ticks: {{
+                            stepSize: 1
+                        }}
+                    }}
+                }}
+            }}
+        }});
+
+        // Model Migration Chart
+        new Chart(document.getElementById('modelMigrationChart'), {{
+            type: 'doughnut',
+            data: {{
+                labels: ['New Model', 'Old Model (Deprecated)'],
+                datasets: [{{
+                    label: 'Organic',
+                    data: [chartData.organic_new, chartData.organic_old],
+                    backgroundColor: ['#28a745', '#dc3545'],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{
+                    legend: {{
+                        position: 'bottom'
+                    }},
+                    title: {{
+                        display: true,
+                        text: 'Organic Links'
+                    }},
+                    tooltip: {{
+                        callbacks: {{
+                            label: function(context) {{
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }});
+
+        // OE Breakdown Chart
+        new Chart(document.getElementById('oeBreakdownChart'), {{
+            type: 'bar',
+            data: {{
+                labels: chartData.oe_names,
+                datasets: [
+                    {{
+                        label: 'Unmapped',
+                        data: chartData.oe_unmapped,
+                        backgroundColor: colors.unmapped
+                    }},
+                    {{
+                        label: 'Old Model Only',
+                        data: chartData.oe_old_only,
+                        backgroundColor: colors.oldOnly
+                    }},
+                    {{
+                        label: 'Mixed',
+                        data: chartData.oe_mixed,
+                        backgroundColor: colors.mixed
+                    }},
+                    {{
+                        label: 'New Model Only',
+                        data: chartData.oe_new_only,
+                        backgroundColor: colors.newOnly
+                    }}
+                ]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {{
+                    legend: {{
+                        position: 'bottom'
+                    }}
+                }},
+                scales: {{
+                    x: {{
+                        stacked: true,
+                        beginAtZero: true
+                    }},
+                    y: {{
+                        stacked: true
+                    }}
+                }}
+            }}
+        }});
     </script>
 </body>
 </html>"""
@@ -770,6 +1006,57 @@ class OECapabilityReporterHybrid:
         </div>
             """
 
+        # Calculate chart data
+        chart_data = {
+            'apps_with_oe': summary.get('total_applications', 0) - summary.get('applications_without_oe', 0),
+            'apps_without_oe': summary.get('applications_without_oe', 0),
+            'organic_new': summary.get('organic_new_model', 0),
+            'organic_old': summary.get('organic_old_model', 0),
+            'oe_names': [],
+            'oe_unmapped': [],
+            'oe_old_only': [],
+            'oe_mixed': [],
+            'oe_new_only': []
+        }
+
+        # Calculate category counts across all applications
+        category_counts = {'unmapped': 0, 'old_only': 0, 'mixed': 0, 'new_only': 0}
+
+        # Process all OEs
+        for oe_id, oe_data in sorted(oes.items(), key=lambda x: x[1].get('oe_name', '')):
+            oe_name = oe_data.get('oe_name', 'Unknown OE')
+            apps = oe_data.get('applications', [])
+
+            chart_data['oe_names'].append(oe_name)
+
+            oe_counts = {'unmapped': 0, 'old_only': 0, 'mixed': 0, 'new_only': 0}
+            for app in apps:
+                priority, category = self._categorize_application(app)
+                cat_key = category.lower().replace(' (old + new)', '').replace(' ', '_')
+                if cat_key in oe_counts:
+                    oe_counts[cat_key] += 1
+                    category_counts[cat_key] += 1
+
+            chart_data['oe_unmapped'].append(oe_counts['unmapped'])
+            chart_data['oe_old_only'].append(oe_counts['old_only'])
+            chart_data['oe_mixed'].append(oe_counts['mixed'])
+            chart_data['oe_new_only'].append(oe_counts['new_only'])
+
+        # Process applications without OE
+        if no_oe.get('applications'):
+            for app in no_oe['applications']:
+                priority, category = self._categorize_application(app)
+                cat_key = category.lower().replace(' (old + new)', '').replace(' ', '_')
+                if cat_key in category_counts:
+                    category_counts[cat_key] += 1
+
+        chart_data['unmapped'] = category_counts['unmapped']
+        chart_data['old_only'] = category_counts['old_only']
+        chart_data['mixed'] = category_counts['mixed']
+        chart_data['new_only'] = category_counts['new_only']
+
+        chart_data_json = json.dumps(chart_data)
+
         # Generate HTML
         html = html_template.format(
             generated_at=report_metadata.get('generated_at', 'Unknown'),
@@ -789,7 +1076,8 @@ class OECapabilityReporterHybrid:
             aggregated_new_pct=summary.get('aggregated_new_pct', 0),
             aggregated_old_pct=summary.get('aggregated_old_pct', 0),
             oe_sections='\n'.join(oe_sections_html),
-            no_oe_section=no_oe_section_html
+            no_oe_section=no_oe_section_html,
+            chart_data_json=chart_data_json
         )
 
         # Write HTML file
