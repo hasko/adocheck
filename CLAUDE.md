@@ -97,7 +97,7 @@ The codebase is organized around these key components:
    - Extracts both organic (RC_REALIZATION) and aggregated (RC_CUST_AGGREGATED_*) capability links
    - Filters capabilities by GDM level (L1, L2, L3)
    - Tracks new vs deprecated "(do not use)" model statistics
-   - JSON output with detailed capability mappings and OE associations
+   - Multiple output formats: JSON, HTML, and Markdown
 
    **Key Features**:
    - Uses search results with embedded RELATION attributes (no separate entity fetches)
@@ -105,6 +105,31 @@ The codebase is organized around these key components:
    - Capability caching to avoid redundant parsing
    - Identifies unmapped applications and applications without OEs
    - Tracks organic vs aggregated capability relationships
+   - Priority-based organization: Applications without OE shown first, then sorted by mapping status
+
+   **Output Formats**:
+   - **JSON** (default): Complete structured data with metadata and statistics
+   - **HTML** (`--html` flag): Interactive web report with collapsible sections, color-coded categories
+   - **Markdown** (`--markdown` or `--md` flag): Clean markdown tables with emoji indicators
+
+   **Priority Sorting**:
+   Within each OE section, applications are sorted by priority (descending):
+   - 🔴 Unmapped (no capabilities)
+   - 🟠 Old Model Only (all deprecated)
+   - 🟡 Mixed (Old + New) (partially migrated)
+   - 🟢 New Model Only (fully migrated)
+
+   **Usage**:
+   ```bash
+   # Generate all three formats
+   python oe_capability_report_hybrid.py --html --markdown
+
+   # Use cached data for faster runs
+   python oe_capability_report_hybrid.py --use-cache --html --markdown
+
+   # Custom output location
+   python oe_capability_report_hybrid.py -o custom/path/report.json --html
+   ```
 
    **Important Discovery**:
    - Capabilities are repository objects (`artefactType: "REPOSITORY_OBJECT"`), not entities
