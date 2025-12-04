@@ -411,6 +411,583 @@ class OECapabilityReporterHybrid:
 
         return output_path
 
+    def generate_html_report(self, json_data: Dict[str, Any], output_path: str) -> str:
+        """Generate HTML version of the report from JSON data."""
+        html_template = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OE Capability Report</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }}
+
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }}
+
+        h1 {{
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }}
+
+        h2 {{
+            color: #34495e;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #ecf0f1;
+            border-left: 4px solid #3498db;
+        }}
+
+        h3 {{
+            color: #555;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }}
+
+        .metadata {{
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+            color: #666;
+        }}
+
+        .summary {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }}
+
+        .stat-card {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+
+        .stat-card.organic {{
+            background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%);
+        }}
+
+        .stat-card.aggregated {{
+            background: linear-gradient(135deg, #f2994a 0%, #f2c94c 100%);
+        }}
+
+        .stat-card h3 {{
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+            color: white;
+        }}
+
+        .stat-value {{
+            font-size: 2em;
+            font-weight: bold;
+            margin: 10px 0;
+        }}
+
+        .stat-detail {{
+            font-size: 0.9em;
+            opacity: 0.9;
+        }}
+
+        .oe-section {{
+            margin-bottom: 40px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+        }}
+
+        .oe-header {{
+            background: #34495e;
+            color: white;
+            padding: 15px 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+
+        .oe-header:hover {{
+            background: #2c3e50;
+        }}
+
+        .oe-header h2 {{
+            margin: 0;
+            background: none;
+            border: none;
+            padding: 0;
+            color: white;
+        }}
+
+        .oe-stats {{
+            display: flex;
+            gap: 20px;
+            font-size: 0.9em;
+        }}
+
+        .oe-content {{
+            padding: 20px;
+        }}
+
+        .oe-content.collapsed {{
+            display: none;
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }}
+
+        th {{
+            background: #3498db;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }}
+
+        td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid #ecf0f1;
+        }}
+
+        tr:hover {{
+            background: #f8f9fa;
+        }}
+
+        .capability-list {{
+            margin: 5px 0;
+        }}
+
+        .capability-item {{
+            display: inline-block;
+            padding: 4px 10px;
+            margin: 2px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            background: #e3f2fd;
+            color: #1976d2;
+        }}
+
+        .capability-item.deprecated {{
+            background: #ffebee;
+            color: #c62828;
+            text-decoration: line-through;
+        }}
+
+        .level-badge {{
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 5px;
+        }}
+
+        .level-badge.L1 {{
+            background: #e8f5e9;
+            color: #2e7d32;
+        }}
+
+        .level-badge.L2 {{
+            background: #fff3e0;
+            color: #ef6c00;
+        }}
+
+        .level-badge.L3 {{
+            background: #fce4ec;
+            color: #c2185b;
+        }}
+
+        .badge {{
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }}
+
+        .badge.success {{
+            background: #d4edda;
+            color: #155724;
+        }}
+
+        .badge.warning {{
+            background: #fff3cd;
+            color: #856404;
+        }}
+
+        .badge.danger {{
+            background: #f8d7da;
+            color: #721c24;
+        }}
+
+        .toggle-icon {{
+            transition: transform 0.3s;
+        }}
+
+        .toggle-icon.collapsed {{
+            transform: rotate(-90deg);
+        }}
+
+        .no-data {{
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-style: italic;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OE Capability Report</h1>
+
+        <div class="metadata">
+            <strong>Generated:</strong> {generated_at}<br>
+            <strong>GDM Levels:</strong> {gdm_levels}<br>
+            <strong>Application Specialisation:</strong> {app_specialisation}
+        </div>
+
+        <div class="summary">
+            <div class="stat-card">
+                <h3>Overview</h3>
+                <div class="stat-value">{total_oes}</div>
+                <div class="stat-detail">Organizational Entities</div>
+                <div class="stat-detail">{total_applications} Applications</div>
+                <div class="stat-detail">{unmapped} Unmapped</div>
+            </div>
+
+            <div class="stat-card organic">
+                <h3>Organic Links</h3>
+                <div class="stat-value">{organic_mapped}</div>
+                <div class="stat-detail">New Model: {organic_new_model} ({organic_new_pct:.1f}%)</div>
+                <div class="stat-detail">Old Model: {organic_old_model} ({organic_old_pct:.1f}%)</div>
+            </div>
+
+            <div class="stat-card aggregated">
+                <h3>Aggregated Links</h3>
+                <div class="stat-value">{aggregated_mapped}</div>
+                <div class="stat-detail">New Model: {aggregated_new_model} ({aggregated_new_pct:.1f}%)</div>
+                <div class="stat-detail">Old Model: {aggregated_old_model} ({aggregated_old_pct:.1f}%)</div>
+            </div>
+        </div>
+
+        {oe_sections}
+
+        {no_oe_section}
+    </div>
+
+    <script>
+        function toggleOE(id) {{
+            const content = document.getElementById('oe-content-' + id);
+            const icon = document.getElementById('toggle-icon-' + id);
+            content.classList.toggle('collapsed');
+            icon.classList.toggle('collapsed');
+        }}
+    </script>
+</body>
+</html>"""
+
+        # Extract data
+        metadata = json_data.get('metadata', {})
+        summary = json_data.get('summary_statistics', {})
+        oes = json_data.get('oes', {})
+        no_oe = json_data.get('applications_without_oe', {})
+
+        # Format OE sections
+        oe_sections_html = []
+        for i, (oe_id, oe_data) in enumerate(sorted(oes.items(), key=lambda x: x[1].get('oe_name', ''))):
+            oe_name = oe_data.get('oe_name', 'Unknown OE')
+            stats = oe_data.get('statistics', {})
+            apps = oe_data.get('applications', [])
+
+            apps_html = self._generate_applications_table(apps)
+
+            oe_sections_html.append(f"""
+        <div class="oe-section">
+            <div class="oe-header" onclick="toggleOE('{i}')">
+                <h2>{oe_name} <span class="toggle-icon" id="toggle-icon-{i}">▼</span></h2>
+                <div class="oe-stats">
+                    <span>{stats.get('total_applications', 0)} apps</span>
+                    <span class="badge success">Organic: {stats.get('organic_mapped', 0)}</span>
+                    <span class="badge warning">Aggregated: {stats.get('aggregated_mapped', 0)}</span>
+                </div>
+            </div>
+            <div class="oe-content" id="oe-content-{i}">
+                {apps_html}
+            </div>
+        </div>
+            """)
+
+        # Format no OE section
+        no_oe_section_html = ""
+        if no_oe.get('applications'):
+            stats = no_oe.get('statistics', {})
+            apps_html = self._generate_applications_table(no_oe['applications'])
+            no_oe_section_html = f"""
+        <div class="oe-section">
+            <div class="oe-header" onclick="toggleOE('no-oe')">
+                <h2>Applications Without OE <span class="toggle-icon" id="toggle-icon-no-oe">▼</span></h2>
+                <div class="oe-stats">
+                    <span>{stats.get('total_applications', 0)} apps</span>
+                    <span class="badge success">Organic: {stats.get('organic_mapped', 0)}</span>
+                    <span class="badge warning">Aggregated: {stats.get('aggregated_mapped', 0)}</span>
+                </div>
+            </div>
+            <div class="oe-content" id="oe-content-no-oe">
+                {apps_html}
+            </div>
+        </div>
+            """
+
+        # Generate HTML
+        html = html_template.format(
+            generated_at=metadata.get('generated_at', 'Unknown'),
+            gdm_levels=', '.join(metadata.get('gdm_levels', [])),
+            app_specialisation=metadata.get('app_specialisation', 'Unknown'),
+            total_oes=summary.get('total_oes', 0),
+            total_applications=summary.get('total_applications', 0),
+            unmapped=summary.get('unmapped', 0),
+            organic_mapped=summary.get('organic_mapped', 0),
+            organic_new_model=summary.get('organic_new_model', 0),
+            organic_old_model=summary.get('organic_old_model', 0),
+            organic_new_pct=summary.get('organic_new_pct', 0),
+            organic_old_pct=summary.get('organic_old_pct', 0),
+            aggregated_mapped=summary.get('aggregated_mapped', 0),
+            aggregated_new_model=summary.get('aggregated_new_model', 0),
+            aggregated_old_model=summary.get('aggregated_old_model', 0),
+            aggregated_new_pct=summary.get('aggregated_new_pct', 0),
+            aggregated_old_pct=summary.get('aggregated_old_pct', 0),
+            oe_sections='\n'.join(oe_sections_html),
+            no_oe_section=no_oe_section_html
+        )
+
+        # Write HTML file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html)
+
+        return output_path
+
+    def _generate_applications_table(self, applications: List[Dict[str, Any]]) -> str:
+        """Generate HTML table for applications."""
+        if not applications:
+            return '<div class="no-data">No applications</div>'
+
+        rows = []
+        for app in applications:
+            app_name = app.get('name', 'Unknown')
+
+            # Format organic capabilities
+            organic_html = self._format_capabilities_html(app.get('organic_capabilities', {}))
+
+            # Format aggregated capabilities
+            aggregated_html = self._format_capabilities_html(app.get('aggregated_capabilities', {}))
+
+            # Status badges
+            status_badges = []
+            if app.get('has_organic_links'):
+                badge_class = 'danger' if app.get('organic_uses_deprecated') else 'success'
+                status_badges.append(f'<span class="badge {badge_class}">Organic</span>')
+            if app.get('has_aggregated_links'):
+                badge_class = 'danger' if app.get('aggregated_uses_deprecated') else 'warning'
+                status_badges.append(f'<span class="badge {badge_class}">Aggregated</span>')
+            if not status_badges:
+                status_badges.append('<span class="badge">Unmapped</span>')
+
+            rows.append(f"""
+                <tr>
+                    <td><strong>{app_name}</strong><br>{''.join(status_badges)}</td>
+                    <td>{organic_html}</td>
+                    <td>{aggregated_html}</td>
+                </tr>
+            """)
+
+        return f"""
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 30%">Application</th>
+                        <th style="width: 35%">Organic Capabilities</th>
+                        <th style="width: 35%">Aggregated Capabilities</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(rows)}
+                </tbody>
+            </table>
+        """
+
+    def _format_capabilities_html(self, capabilities: Dict[str, List[Dict[str, Any]]]) -> str:
+        """Format capabilities as HTML."""
+        if not capabilities:
+            return '<span style="color: #999; font-style: italic;">None</span>'
+
+        items = []
+        for cap_name, cap_list in sorted(capabilities.items()):
+            for cap in cap_list:
+                level = cap.get('level', 'Unknown')
+                deprecated = cap.get('deprecated', False)
+                dep_class = ' deprecated' if deprecated else ''
+                items.append(
+                    f'<span class="capability-item{dep_class}">'
+                    f'{cap_name}<span class="level-badge {level}">{level}</span>'
+                    f'</span>'
+                )
+
+        return '<div class="capability-list">' + ''.join(items) + '</div>'
+
+    def generate_markdown_report(self, json_data: Dict[str, Any], output_path: str) -> str:
+        """Generate Markdown version of the report from JSON data."""
+        lines = []
+
+        # Extract data
+        metadata = json_data.get('metadata', {})
+        summary = json_data.get('summary_statistics', {})
+        oes = json_data.get('oes', {})
+        no_oe = json_data.get('applications_without_oe', {})
+
+        # Header
+        lines.append("# OE Capability Report\n")
+
+        # Metadata
+        lines.append("## Report Information\n")
+        lines.append(f"- **Generated:** {metadata.get('generated_at', 'Unknown')}")
+        lines.append(f"- **GDM Levels:** {', '.join(metadata.get('gdm_levels', []))}")
+        lines.append(f"- **Application Specialisation:** {metadata.get('app_specialisation', 'Unknown')}\n")
+
+        # Summary Statistics
+        lines.append("## Summary Statistics\n")
+        lines.append("### Overview")
+        lines.append(f"- **Total OEs:** {summary.get('total_oes', 0)}")
+        lines.append(f"- **Total Applications:** {summary.get('total_applications', 0)}")
+        lines.append(f"- **Unmapped Applications:** {summary.get('unmapped', 0)}")
+        lines.append(f"- **Applications Without OE:** {summary.get('applications_without_oe', 0)}\n")
+
+        lines.append("### Organic Links (RC_REALIZATION)")
+        lines.append(f"- **Mapped:** {summary.get('organic_mapped', 0)}")
+        lines.append(f"- **New Model:** {summary.get('organic_new_model', 0)} ({summary.get('organic_new_pct', 0):.1f}%)")
+        lines.append(f"- **Old Model (deprecated):** {summary.get('organic_old_model', 0)} ({summary.get('organic_old_pct', 0):.1f}%)\n")
+
+        lines.append("### Aggregated Links (Curated)")
+        lines.append(f"- **Mapped:** {summary.get('aggregated_mapped', 0)}")
+        lines.append(f"- **New Model:** {summary.get('aggregated_new_model', 0)} ({summary.get('aggregated_new_pct', 0):.1f}%)")
+        lines.append(f"- **Old Model (deprecated):** {summary.get('aggregated_old_model', 0)} ({summary.get('aggregated_old_pct', 0):.1f}%)\n")
+
+        # OE Sections
+        lines.append("## Organizational Entities\n")
+
+        for oe_id, oe_data in sorted(oes.items(), key=lambda x: x[1].get('oe_name', '')):
+            oe_name = oe_data.get('oe_name', 'Unknown OE')
+            stats = oe_data.get('statistics', {})
+            apps = oe_data.get('applications', [])
+
+            lines.append(f"### {oe_name}\n")
+            lines.append(f"**Statistics:**")
+            lines.append(f"- Total Applications: {stats.get('total_applications', 0)}")
+            lines.append(f"- Organic Mapped: {stats.get('organic_mapped', 0)}")
+            lines.append(f"- Aggregated Mapped: {stats.get('aggregated_mapped', 0)}")
+            lines.append(f"- Unmapped: {stats.get('unmapped', 0)}\n")
+
+            if apps:
+                lines.append(self._generate_applications_markdown_table(apps))
+            else:
+                lines.append("_No applications_\n")
+
+        # Applications Without OE
+        if no_oe.get('applications'):
+            lines.append("### Applications Without OE\n")
+            stats = no_oe.get('statistics', {})
+            lines.append(f"**Statistics:**")
+            lines.append(f"- Total Applications: {stats.get('total_applications', 0)}")
+            lines.append(f"- Organic Mapped: {stats.get('organic_mapped', 0)}")
+            lines.append(f"- Aggregated Mapped: {stats.get('aggregated_mapped', 0)}")
+            lines.append(f"- Unmapped: {stats.get('unmapped', 0)}\n")
+            lines.append(self._generate_applications_markdown_table(no_oe['applications']))
+
+        # Write file
+        markdown_content = '\n'.join(lines)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(markdown_content)
+
+        return output_path
+
+    def _generate_applications_markdown_table(self, applications: List[Dict[str, Any]]) -> str:
+        """Generate Markdown table for applications."""
+        if not applications:
+            return "_No applications_\n"
+
+        lines = []
+        lines.append("| Application | Status | Organic Capabilities | Aggregated Capabilities |")
+        lines.append("|------------|--------|---------------------|------------------------|")
+
+        for app in applications:
+            app_name = app.get('name', 'Unknown')
+
+            # Status
+            status_parts = []
+            if app.get('has_organic_links'):
+                if app.get('organic_uses_deprecated'):
+                    status_parts.append("🔴 Organic")
+                else:
+                    status_parts.append("✅ Organic")
+            if app.get('has_aggregated_links'):
+                if app.get('aggregated_uses_deprecated'):
+                    status_parts.append("🔴 Aggregated")
+                else:
+                    status_parts.append("⚠️ Aggregated")
+            status = ", ".join(status_parts) if status_parts else "⚪ Unmapped"
+
+            # Format capabilities
+            organic_caps = self._format_capabilities_markdown(app.get('organic_capabilities', {}))
+            aggregated_caps = self._format_capabilities_markdown(app.get('aggregated_capabilities', {}))
+
+            lines.append(f"| {app_name} | {status} | {organic_caps} | {aggregated_caps} |")
+
+        lines.append("")
+        return '\n'.join(lines)
+
+    def _format_capabilities_markdown(self, capabilities: Dict[str, List[Dict[str, Any]]]) -> str:
+        """Format capabilities as Markdown."""
+        if not capabilities:
+            return "_None_"
+
+        items = []
+        for cap_name, cap_list in sorted(capabilities.items()):
+            for cap in cap_list:
+                level = cap.get('level', 'Unknown')
+                deprecated = cap.get('deprecated', False)
+                if deprecated:
+                    items.append(f"~~{cap_name}~~ `{level}`")
+                else:
+                    items.append(f"{cap_name} `{level}`")
+
+        return "<br>".join(items)
+
 
 def main():
     """Command-line interface."""
@@ -450,6 +1027,18 @@ def main():
         help='Logging level'
     )
 
+    parser.add_argument(
+        '--html',
+        action='store_true',
+        help='Generate HTML report in addition to JSON'
+    )
+
+    parser.add_argument(
+        '--markdown', '--md',
+        action='store_true',
+        help='Generate Markdown report in addition to JSON'
+    )
+
     args = parser.parse_args()
 
     logging.getLogger().setLevel(getattr(logging, args.log_level))
@@ -463,6 +1052,7 @@ def main():
     reporter = OECapabilityReporterHybrid(api, use_cache=args.use_cache)
 
     try:
+        # Generate JSON report
         report_path = reporter.generate_oe_report(
             app_specialisation=args.app_specialisation,
             gdm_levels=args.gdm_levels,
@@ -470,7 +1060,27 @@ def main():
         )
 
         if report_path:
-            print(f"\n✓ Report generated successfully: {report_path}")
+            print(f"\n✓ JSON report generated successfully: {report_path}")
+
+            # Read JSON data once for multiple formats
+            json_data = None
+            if args.html or args.markdown:
+                with open(report_path, 'r', encoding='utf-8') as f:
+                    json_data = json.load(f)
+
+            # Generate HTML report if requested
+            if args.html:
+                html_path = Path(report_path).with_suffix('.html')
+                html_report_path = reporter.generate_html_report(json_data, str(html_path))
+                file_size_kb = Path(html_report_path).stat().st_size / 1024
+                print(f"✓ HTML report generated successfully: {html_report_path} ({file_size_kb:.1f} KB)")
+
+            # Generate Markdown report if requested
+            if args.markdown:
+                md_path = Path(report_path).with_suffix('.md')
+                md_report_path = reporter.generate_markdown_report(json_data, str(md_path))
+                file_size_kb = Path(md_report_path).stat().st_size / 1024
+                print(f"✓ Markdown report generated successfully: {md_report_path} ({file_size_kb:.1f} KB)")
 
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=True)
